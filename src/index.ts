@@ -4,32 +4,33 @@ import "dotenv/config";
 import { fetchThread } from "./discord.js";
 import { extractIssueDraft } from "./extract.js";
 import { renderDraft, renderTranscript } from "./format.js";
+import { createIssue } from "./github.js";
 
 const USAGE = `discord-to-github — turn a Discord forum thread into a GitHub issue
 
 Usage:
-  npm start <discord-thread-url> [--dry-run] [--yes]
+  npm start <discord-thread-url> [--no-dry-run]
 
 Arguments:
   <discord-thread-url>   A https://discord.com/channels/... forum thread URL.
 
 Options:
-  --dry-run    Print the GitHub request instead of creating the issue.
-  --yes, -y    Skip the confirmation prompt (create without asking).
-  --help, -h   Show this help.
+  --no-dry-run   Actually create the GitHub issue. Without this the tool only
+                 prints the request it would POST (dry run is the default).
+  --help, -h     Show this help.
 
 Configuration is read from .env (see .env.example).`;
 
 interface CliArgs {
   threadUrl: string;
   dryRun: boolean;
-  skipConfirm: boolean;
 }
 
 function parseArgs(argv: string[]): CliArgs | null {
   const positionals: string[] = [];
-  let dryRun = false;
-  let skipConfirm = false;
+  // Dry run defaults ON until the Stage 5 confirm gate exists — a real POST
+  // requires opting out explicitly.
+  let dryRun = true;
 
   for (const arg of argv) {
     switch (arg) {
@@ -39,9 +40,8 @@ function parseArgs(argv: string[]): CliArgs | null {
       case "--dry-run":
         dryRun = true;
         break;
-      case "--yes":
-      case "-y":
-        skipConfirm = true;
+      case "--no-dry-run":
+        dryRun = false;
         break;
       default:
         positionals.push(arg);
@@ -49,7 +49,7 @@ function parseArgs(argv: string[]): CliArgs | null {
   }
 
   if (positionals.length !== 1) return null;
-  return { threadUrl: positionals[0]!, dryRun, skipConfirm };
+  return { threadUrl: positionals[0]!, dryRun };
 }
 
 async function main(): Promise<number> {
@@ -66,8 +66,13 @@ async function main(): Promise<number> {
   console.log("");
   console.log(renderDraft(draft));
 
-  // Preview (Stage 5) and GitHub creation (Stage 4) are wired in as those stages
-  // land; for now the tool stops at the drafted issue.
+  // The Stage 5 preview/confirm gate slots in here; until then dry run is the
+  // default safety mechanism and a real create requires --no-dry-run.
+  console.log("");
+  const issueUrl = await createIssue(draft, { dryRun: args.dryRun });
+  if (issueUrl) {
+    console.log(`Created issue: ${issueUrl}`);
+  }
   return 0;
 }
 
