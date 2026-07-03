@@ -16,10 +16,38 @@ const DEFAULT_CONTEXT_FILE = "context/CONTEXT.md";
 const MAX_TOKENS = 8192;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // ~5 MB/image — Anthropic vision guidance
 
+type SupportedImageType = Anthropic.Base64ImageSource["media_type"];
+
 // Base64 image blocks accept only these media types.
-const SUPPORTED_IMAGE_TYPES = new Set<Anthropic.Base64ImageSource["media_type"]>(
-  ["image/jpeg", "image/png", "image/gif", "image/webp"],
-);
+const SUPPORTED_IMAGE_TYPES = new Set<SupportedImageType>([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+]);
+
+/**
+ * Detect an image's real media type from its leading bytes. Discord's declared
+ * `contentType` is sometimes wrong (e.g. a PNG labelled `image/webp`), and the
+ * Anthropic API rejects a base64 block whose `media_type` disagrees with the
+ * actual bytes — so we sniff rather than trust the label. Returns null for
+ * formats the API doesn't accept.
+ */
+function sniffImageType(buf: Buffer): SupportedImageType | null {
+  if (buf.length >= 8 && buf.readUInt32BE(0) === 0x89504e47) return "image/png";
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (buf.length >= 4 && buf.toString("ascii", 0, 4) === "GIF8") return "image/gif";
+  if (
+    buf.length >= 12 &&
+    buf.toString("ascii", 0, 4) === "RIFF" &&
+    buf.toString("ascii", 8, 12) === "WEBP"
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
 
 /**
  * The fields Claude extracts. Provenance (the thread URL, requester, and exact
@@ -123,8 +151,11 @@ async function fetchImageBlocks(
 
   for (const msg of messages) {
     for (const att of msg.attachments) {
-      const mediaType = att.contentType as Anthropic.Base64ImageSource["media_type"];
-      if (!att.contentType || !SUPPORTED_IMAGE_TYPES.has(mediaType)) continue;
+      // Discord's declared contentType is only a first-pass filter to avoid
+      // downloading non-images; the real media type is sniffed from the bytes
+      // below, because the label is sometimes wrong.
+      const declared = att.contentType as SupportedImageType;
+      if (!att.contentType || !SUPPORTED_IMAGE_TYPES.has(declared)) continue;
       if (att.size > MAX_IMAGE_BYTES) {
         console.warn(
           `Skipping oversized image ${att.filename} (${att.size} bytes > ${MAX_IMAGE_BYTES}).`,
@@ -140,10 +171,21 @@ async function fetchImageBlocks(
           );
           continue;
         }
-        const data = Buffer.from(await res.arrayBuffer()).toString("base64");
+        const buf = Buffer.from(await res.arrayBuffer());
+        const mediaType = sniffImageType(buf);
+        if (!mediaType) {
+          console.warn(
+            `Skipping image ${att.filename}: unrecognized image format (declared ${att.contentType}).`,
+          );
+          continue;
+        }
         blocks.push({
           type: "image",
-          source: { type: "base64", media_type: mediaType, data },
+          source: {
+            type: "base64",
+            media_type: mediaType,
+            data: buf.toString("base64"),
+          },
         });
       } catch (err) {
         console.warn(
