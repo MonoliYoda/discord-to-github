@@ -2,9 +2,7 @@
 import "dotenv/config";
 
 import { fetchThread } from "./discord.js";
-import { extractIssueDraft } from "./extract.js";
-import { createIssue } from "./github.js";
-import { confirmCreate } from "./preview.js";
+import { renderTranscript } from "./format.js";
 
 const USAGE = `discord-to-github — turn a Discord forum thread into a GitHub issue
 
@@ -60,23 +58,19 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  // Pipeline skeleton — each step is fleshed out in a later stage.
   const messages = await fetchThread(args.threadUrl);
-  const draft = await extractIssueDraft(messages, args.threadUrl);
+  console.log(renderTranscript(messages));
 
-  const approved = args.skipConfirm || (await confirmCreate(draft));
-  if (!approved) {
-    console.log("Aborted — no issue created.");
-    return 0;
-  }
-
-  await createIssue(draft, { dryRun: args.dryRun });
+  // Extraction (Stage 3), preview (Stage 5), and GitHub creation (Stage 4) are
+  // wired in as those stages land; for now the tool stops at the transcript.
   return 0;
 }
 
 main()
-  .then((code) => process.exit(code))
+  .then((code) => {
+    process.exitCode = code;
+  })
   .catch((err: unknown) => {
     console.error(err instanceof Error ? err.message : err);
-    process.exit(1);
+    process.exitCode = 1;
   });
