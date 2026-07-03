@@ -38,7 +38,7 @@ cp context/DOMAIN_CONTEXT.md context/CONTEXT.md   # then fill in your domain
 
 | Variable | Purpose |
 | --- | --- |
-| `DISCORD_BOT_TOKEN` | Bot token. The bot must be in the target server with the **Message Content Intent** (privileged) enabled, and **View Channel + Read Message History** on the forum channel. |
+| `DISCORD_BOT_TOKEN` | Bot token. The bot must be in the target server with the **Message Content Intent** (privileged) enabled, and **View Channel + Read Message History + Send Messages** (incl. Send Messages in Threads) on the forum channel. |
 | `ANTHROPIC_API_KEY` | Anthropic API key for the extraction call. |
 | `ANTHROPIC_MODEL` | Optional model override. Defaults to `claude-opus-4-8`. |
 | `GITHUB_TOKEN` | Fine-grained PAT with **Issues: read + write** on the target repo. |
@@ -59,8 +59,9 @@ different project, point `CONTEXT_FILE` at another file.
 
 Create a bot in the [Discord developer portal](https://discord.com/developers/applications), enable
 the **Message Content Intent** under Bot → Privileged Gateway Intents, invite it to your server, and
-make sure it has **View Channel** and **Read Message History** on the forum channel you'll point it
-at.
+make sure it has **View Channel**, **Read Message History**, and **Send Messages** (including **Send
+Messages in Threads**) on the forum channel you'll point it at. The send permission lets the tool post
+the created issue's link back into the thread once the issue is filed.
 
 ## Usage
 

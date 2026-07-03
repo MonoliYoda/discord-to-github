@@ -80,8 +80,9 @@ async function describeError(res: Response, threadId: string): Promise<string> {
       return `${base}\nThe DISCORD_BOT_TOKEN is invalid or expired.`;
     case 403:
       return (
-        `${base}\nThe bot cannot read this channel. Ensure it has View Channel + ` +
-        `Read Message History on the forum, and that the Message Content Intent is enabled.`
+        `${base}\nThe bot lacks permission on this channel. For reading, ensure it has ` +
+        `View Channel + Read Message History and the Message Content Intent; for posting, ` +
+        `ensure it has Send Messages / Send Messages in Threads.`
       );
     case 404:
       return `${base}\nNo such channel/thread — check the thread URL.`;
@@ -137,6 +138,33 @@ function normalizeMessage(msg: DiscordMessage): ThreadMessage {
     attachments: (msg.attachments ?? []).map(normalizeAttachment),
     reactions: (msg.reactions ?? []).map(normalizeReaction),
   };
+}
+
+/**
+ * Post a message into the thread. Used to drop a link back to the freshly
+ * created GitHub issue so everyone in the thread sees, at a glance, that the
+ * dev team has picked it up. Requires the bot's Send Messages / Send Messages
+ * in Threads permission on the forum channel.
+ */
+export async function postThreadReply(
+  threadUrl: string,
+  content: string,
+): Promise<void> {
+  const token = getToken();
+  const threadId = parseThreadId(threadUrl);
+
+  const res = await fetch(`${API_BASE}/channels/${threadId}/messages`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bot ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ content }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await describeError(res, threadId));
+  }
 }
 
 /**

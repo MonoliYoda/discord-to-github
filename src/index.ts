@@ -1,7 +1,7 @@
 #!/usr/bin/env -S npx tsx
 import "dotenv/config";
 
-import { fetchThread } from "./discord.js";
+import { fetchThread, postThreadReply } from "./discord.js";
 import { createIssueDrafter } from "./extract.js";
 import { renderDraft, renderTranscript } from "./format.js";
 import { createIssue } from "./github.js";
@@ -104,6 +104,23 @@ async function main(): Promise<number> {
 
   const issueUrl = await createIssue(draft, { dryRun: false });
   console.log(`Created issue: ${issueUrl}`);
+
+  // Let the thread know the dev team has taken this up. The issue already
+  // exists, so a failure to post is a warning, not a run failure.
+  try {
+    await postThreadReply(
+      args.threadUrl,
+      `📌 The dev team has picked this up — tracking it here: ${issueUrl}`,
+    );
+    console.log("Posted the issue link back to the thread.");
+  } catch (err) {
+    console.warn(
+      `Warning: created the issue but couldn't post the link back to the thread: ${
+        err instanceof Error ? err.message : err
+      }`,
+    );
+  }
+
   return 0;
 }
 
