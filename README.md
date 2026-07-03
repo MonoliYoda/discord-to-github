@@ -71,5 +71,5 @@ npm start <discord-thread-url> --yes      # skip the confirmation prompt
 
 ## Status
 
-Scaffolded. The pipeline stages (Discord fetch, extraction, GitHub create, preview gate) are built
-out incrementally — see `docs/plans/build-plan.md`.
+Complete. The full pipeline — Discord fetch → extraction → preview/confirm gate → GitHub create —
+is built. See `docs/plans/build-plan.md` for the staged history.

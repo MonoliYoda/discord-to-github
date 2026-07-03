@@ -1,9 +1,18 @@
-import type { IssueDraft } from "./types.js";
+import { createInterface } from "node:readline/promises";
 
 /**
- * Render the draft to the terminal and prompt for confirmation before creating
- * the issue. Returns true if the user approves. Implemented in Stage 5.
+ * Prompt on the terminal for confirmation before creating an issue. Returns true
+ * only for an explicit "y"/"yes"; anything else — including a bare Enter or EOF
+ * (piped / non-interactive input) — defaults to No, so the gate fails safe.
  */
-export async function confirmCreate(_draft: IssueDraft): Promise<boolean> {
-  throw new Error("preview.confirmCreate not implemented yet (Stage 5)");
+export async function confirmCreate(
+  prompt = "Create this issue? [y/N] ",
+): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await rl.question(prompt);
+    return /^y(es)?$/i.test(answer.trim());
+  } finally {
+    rl.close();
+  }
 }
