@@ -7,6 +7,7 @@ import { formatReactions, renderTranscript } from "./format.js";
 import {
   IssueDraftSchema,
   type IssueDraft,
+  type Thread,
   type ThreadMessage,
   type ThreadReaction,
 } from "./types.js";
@@ -246,7 +247,7 @@ export interface IssueDrafter {
  * rejects them).
  */
 export async function createIssueDrafter(
-  messages: ThreadMessage[],
+  thread: Thread,
   discordUrl: string,
 ): Promise<IssueDrafter> {
   const apiKey = getApiKey();
@@ -256,10 +257,10 @@ export async function createIssueDrafter(
 
   // Fetched once and reused across the initial draft and every revision.
   const baseContent: Anthropic.ContentBlockParam[] = [
-    { type: "text", text: renderTranscript(messages) },
-    ...(await fetchImageBlocks(messages)),
+    { type: "text", text: renderTranscript(thread) },
+    ...(await fetchImageBlocks(thread.messages)),
   ];
-  const provenance = computeProvenance(messages, discordUrl);
+  const provenance = computeProvenance(thread.messages, discordUrl);
 
   async function run(
     content: Anthropic.ContentBlockParam[],

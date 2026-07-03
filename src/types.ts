@@ -1,6 +1,16 @@
 import { z } from "zod";
 
 /**
+ * A whole forum thread: its post title (the thread channel's `name`) plus the
+ * chronological messages. Produced by `discord.ts`, consumed by `extract.ts`.
+ */
+export interface Thread {
+  /** The forum post's title — the thread channel's `name`, not any message. */
+  title: string;
+  messages: ThreadMessage[];
+}
+
+/**
  * A single message from a Discord forum thread, normalized to just the fields
  * the pipeline cares about. Produced by `discord.ts`, consumed by `extract.ts`.
  */

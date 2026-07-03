@@ -66,11 +66,11 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const messages = await fetchThread(args.threadUrl);
-  console.log(renderTranscript(messages));
+  const thread = await fetchThread(args.threadUrl);
+  console.log(renderTranscript(thread));
   console.log("");
 
-  const drafter = await createIssueDrafter(messages, args.threadUrl);
+  const drafter = await createIssueDrafter(thread, args.threadUrl);
   let draft = await drafter.draft();
 
   // --dry-run short-circuits to a print-only request; --yes creates the first

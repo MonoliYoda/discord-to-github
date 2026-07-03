@@ -1,4 +1,5 @@
 import type {
+  Thread,
   ThreadAttachment,
   ThreadMessage,
   ThreadReaction,
@@ -21,6 +22,10 @@ interface DiscordAttachment {
   filename: string;
   size: number;
   content_type?: string;
+}
+/** The thread channel itself; `name` is the forum post's title. */
+interface DiscordChannel {
+  name?: string;
 }
 interface DiscordReaction {
   count: number;
@@ -116,6 +121,20 @@ async function fetchPage(
   }
 }
 
+/** Fetch the thread channel to read its `name` (the forum post's title). */
+async function fetchChannel(
+  threadId: string,
+  token: string,
+): Promise<DiscordChannel> {
+  const res = await fetch(`${API_BASE}/channels/${threadId}`, {
+    headers: { Authorization: `Bot ${token}` },
+  });
+  if (!res.ok) {
+    throw new Error(await describeError(res, threadId));
+  }
+  return (await res.json()) as DiscordChannel;
+}
+
 function normalizeAttachment(a: DiscordAttachment): ThreadAttachment {
   return {
     url: a.url,
@@ -168,13 +187,16 @@ export async function postThreadReply(
 }
 
 /**
- * Fetch every message from a Discord forum thread, oldest-first. Walks the
- * thread backwards a page at a time (the endpoint returns newest-first) until
- * exhausted, then reverses into chronological order.
+ * Fetch a Discord forum thread: its post title (the thread channel's `name`)
+ * and every message oldest-first. Walks the messages backwards a page at a time
+ * (the endpoint returns newest-first) until exhausted, then reverses into
+ * chronological order.
  */
-export async function fetchThread(threadUrl: string): Promise<ThreadMessage[]> {
+export async function fetchThread(threadUrl: string): Promise<Thread> {
   const token = getToken();
   const threadId = parseThreadId(threadUrl);
+
+  const channel = await fetchChannel(threadId, token);
 
   const raw: DiscordMessage[] = [];
   let before: string | null = null;
@@ -186,5 +208,8 @@ export async function fetchThread(threadUrl: string): Promise<ThreadMessage[]> {
   }
 
   raw.reverse(); // newest-first → chronological
-  return raw.map(normalizeMessage);
+  return {
+    title: channel.name?.trim() ?? "",
+    messages: raw.map(normalizeMessage),
+  };
 }

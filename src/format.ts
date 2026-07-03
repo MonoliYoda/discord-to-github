@@ -1,4 +1,4 @@
-import type { IssueDraft, ThreadMessage, ThreadReaction } from "./types.js";
+import type { IssueDraft, Thread, ThreadReaction } from "./types.js";
 
 /** Compact reaction summary, e.g. "💯×5, 👍×1". Reused for issue provenance. */
 export function formatReactions(reactions: ThreadReaction[]): string {
@@ -12,14 +12,17 @@ function formatSize(bytes: number): string {
 }
 
 /**
- * Render a thread as a readable chronological transcript: author · timestamp ·
- * content, with attachment metadata and reaction counts. This is the text the
- * extraction step (Stage 3) will feed to Claude.
+ * Render a thread as a readable chronological transcript: the forum post title
+ * as a header, then author · timestamp · content per message, with attachment
+ * metadata and reaction counts. This is the text the extraction step (Stage 3)
+ * will feed to Claude.
  */
-export function renderTranscript(messages: ThreadMessage[]): string {
+export function renderTranscript(thread: Thread): string {
+  const { title, messages } = thread;
   const count = messages.length;
   const lines: string[] = [
     `=== Thread transcript (${count} message${count === 1 ? "" : "s"}) ===`,
+    `Forum post title: ${title || "(untitled)"}`,
   ];
 
   messages.forEach((msg, i) => {
