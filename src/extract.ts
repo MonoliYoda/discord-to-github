@@ -54,6 +54,38 @@ Weight later messages and highly-reacted messages more heavily — they reflect
 where the discussion landed. Be faithful to the transcript; do not invent
 acceptance criteria that were never discussed.`;
 
+/** The fields Claude produces (everything except code-computed provenance). */
+type ExtractedFields = Omit<IssueDraft, "provenance">;
+
+/**
+ * Build the follow-up turn for a revision: the draft Claude last produced plus
+ * the reviewer's free-form feedback, appended after the (reused) transcript and
+ * images so the model revises with full context.
+ */
+function revisionBlock(
+  previous: ExtractedFields,
+  feedback: string,
+): Anthropic.TextBlockParam {
+  const priorDraft = JSON.stringify(previous, null, 2);
+  return {
+    type: "text",
+    text: `# Revision requested
+
+You previously produced this draft for the thread above:
+
+\`\`\`json
+${priorDraft}
+\`\`\`
+
+A reviewer read that draft and asked for the following changes:
+
+${feedback}
+
+Produce an updated draft that applies this feedback while staying faithful to
+the transcript. Keep the parts the reviewer did not object to.`,
+  };
+}
+
 function getApiKey(): string {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) {
@@ -152,44 +184,70 @@ function computeProvenance(
 }
 
 /**
- * Run the thread transcript (+ attachment images) through Claude and return a
- * validated issue draft. Sends the transcript plus any images with a
- * structured-output schema, then attaches code-computed provenance. The Messages
- * call is kept minimal per the locked decisions (no thinking / sampling params —
- * Opus 4.8 rejects them).
+ * Drafts an issue from a thread and revises it against reviewer feedback. Both
+ * operations reuse the same transcript, images, and provenance so a revision
+ * doesn't re-download attachments or recompute deterministic fields.
  */
-export async function extractIssueDraft(
+export interface IssueDrafter {
+  /** Produce the initial draft from the thread. */
+  draft(): Promise<IssueDraft>;
+  /** Revise a draft per free-form reviewer feedback, returning a new draft. */
+  revise(previous: IssueDraft, feedback: string): Promise<IssueDraft>;
+}
+
+/**
+ * Prepare an extraction session for one thread. Downloads attachment images once
+ * up front (Discord URLs are signed and expire) and holds the transcript,
+ * client, and computed provenance, so the initial draft and any number of
+ * feedback-driven revisions share that context. The Messages call is kept
+ * minimal per the locked decisions (no thinking / sampling params — Opus 4.8
+ * rejects them).
+ */
+export async function createIssueDrafter(
   messages: ThreadMessage[],
   discordUrl: string,
-): Promise<IssueDraft> {
+): Promise<IssueDrafter> {
   const apiKey = getApiKey();
   const model = process.env.ANTHROPIC_MODEL ?? DEFAULT_MODEL;
   const system = `${loadContext()}\n\n${EXTRACTION_INSTRUCTIONS}`;
+  const client = new Anthropic({ apiKey });
 
-  const content: Anthropic.ContentBlockParam[] = [
+  // Fetched once and reused across the initial draft and every revision.
+  const baseContent: Anthropic.ContentBlockParam[] = [
     { type: "text", text: renderTranscript(messages) },
     ...(await fetchImageBlocks(messages)),
   ];
+  const provenance = computeProvenance(messages, discordUrl);
 
-  const client = new Anthropic({ apiKey });
-  const res = await client.messages.parse({
-    model,
-    max_tokens: MAX_TOKENS,
-    system,
-    messages: [{ role: "user", content }],
-    output_config: { format: zodOutputFormat(ExtractionSchema) },
-  });
+  async function run(
+    content: Anthropic.ContentBlockParam[],
+  ): Promise<IssueDraft> {
+    const res = await client.messages.parse({
+      model,
+      max_tokens: MAX_TOKENS,
+      system,
+      messages: [{ role: "user", content }],
+      output_config: { format: zodOutputFormat(ExtractionSchema) },
+    });
 
-  if (!res.parsed_output) {
-    const reason =
-      res.stop_reason === "refusal"
-        ? "the model declined to respond (refusal)"
-        : `stop_reason was ${res.stop_reason}`;
-    throw new Error(`Extraction did not return a valid draft: ${reason}.`);
+    if (!res.parsed_output) {
+      const reason =
+        res.stop_reason === "refusal"
+          ? "the model declined to respond (refusal)"
+          : `stop_reason was ${res.stop_reason}`;
+      throw new Error(`Extraction did not return a valid draft: ${reason}.`);
+    }
+
+    return { ...res.parsed_output, provenance };
   }
 
   return {
-    ...res.parsed_output,
-    provenance: computeProvenance(messages, discordUrl),
+    draft() {
+      return run(baseContent);
+    },
+    revise(previous, feedback) {
+      const { provenance: _omit, ...priorFields } = previous;
+      return run([...baseContent, revisionBlock(priorFields, feedback)]);
+    },
   };
 }

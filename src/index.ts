@@ -2,10 +2,10 @@
 import "dotenv/config";
 
 import { fetchThread } from "./discord.js";
-import { extractIssueDraft } from "./extract.js";
+import { createIssueDrafter } from "./extract.js";
 import { renderDraft, renderTranscript } from "./format.js";
 import { createIssue } from "./github.js";
-import { confirmCreate } from "./preview.js";
+import { reviewDraft } from "./preview.js";
 
 const USAGE = `discord-to-github — turn a Discord forum thread into a GitHub issue
 
@@ -70,21 +70,36 @@ async function main(): Promise<number> {
   console.log(renderTranscript(messages));
   console.log("");
 
-  const draft = await extractIssueDraft(messages, args.threadUrl);
-  console.log(renderDraft(draft));
-  console.log("");
+  const drafter = await createIssueDrafter(messages, args.threadUrl);
+  let draft = await drafter.draft();
 
-  // --dry-run short-circuits to a print-only request. Otherwise the confirm
-  // gate requires an explicit "y" before creating, unless --yes bypasses it.
+  // --dry-run short-circuits to a print-only request; --yes creates the first
+  // draft without prompting. Otherwise the gate loops: create, abort, or send
+  // feedback back to Claude for a revised draft and re-prompt.
   if (args.dryRun) {
+    console.log(renderDraft(draft));
+    console.log("");
     await createIssue(draft, { dryRun: true });
     return 0;
   }
 
-  const approved = args.skipConfirm || (await confirmCreate());
-  if (!approved) {
-    console.log("Aborted — no issue created.");
-    return 0;
+  while (true) {
+    console.log(renderDraft(draft));
+    console.log("");
+
+    if (args.skipConfirm) break;
+
+    const decision = await reviewDraft();
+    if (decision.action === "create") break;
+    if (decision.action === "abort") {
+      console.log("Aborted — no issue created.");
+      return 0;
+    }
+
+    console.log("");
+    console.log("Revising the draft with your feedback…");
+    console.log("");
+    draft = await drafter.revise(draft, decision.feedback);
   }
 
   const issueUrl = await createIssue(draft, { dryRun: false });

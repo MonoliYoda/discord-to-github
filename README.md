@@ -20,7 +20,8 @@ npm start <discord-thread-url>
 2. **Extract** — sends the transcript plus any attachment images to Claude, together with your
    domain context, and gets back a structured issue draft (title, problem, agreed behavior, open
    questions, rejected alternatives, labels).
-3. **Preview** — renders the draft in the terminal and asks for confirmation.
+3. **Preview** — renders the draft in the terminal and asks for confirmation. You can also type
+   free-form feedback to have Claude revise the draft, then it re-prompts.
 4. **Create** — on approval, POSTs the issue to your target GitHub repo.
 
 ## Setup
@@ -68,6 +69,9 @@ npm start <discord-thread-url>            # fetch → extract → preview → co
 npm start <discord-thread-url> --dry-run  # print the GitHub request instead of creating
 npm start <discord-thread-url> --yes      # skip the confirmation prompt
 ```
+
+At the confirmation prompt you can answer `y` to create, `N` (or Enter) to abort, or type any
+other text as feedback — Claude revises the draft accordingly and shows it again for another pass.
 
 ## Status
 
