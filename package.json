@@ -1,0 +1,26 @@
+{
+  "name": "discord-to-github",
+  "version": "0.1.0",
+  "description": "CLI that turns a Discord forum thread into a structured GitHub issue via Claude decision extraction. Domain context is fully configurable.",
+  "type": "module",
+  "bin": {
+    "discord-to-github": "src/index.ts"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "dotenv": "^17.2.3",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}
