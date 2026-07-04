@@ -11,14 +11,21 @@ import {
   GatewayIntentBits,
   MessageFlags,
   PermissionFlagsBits,
+  type ButtonInteraction,
   type Message,
   type MessageContextMenuCommandInteraction,
+  type ModalSubmitInteraction,
 } from "discord.js";
 
 import type { IssueDrafter } from "./extract.js";
-import { startDraft } from "./pipeline.js";
+import { finalizeIssue, startDraft } from "./pipeline.js";
 import type { IssueDraft } from "./types.js";
-import { buildButtons, buildDraftEmbed } from "./bot/render.js";
+import {
+  buildButtons,
+  buildDraftEmbed,
+  buildReviseModal,
+  REVISE_FEEDBACK_INPUT,
+} from "./bot/render.js";
 
 /**
  * The Discord surface for the pipeline: a restricted message context-menu command
@@ -52,6 +59,11 @@ function requireEnv(name: string): string {
     throw new Error(`${name} is not set. Add it to your .env (see .env.example).`);
   }
   return value;
+}
+
+/** Whether the Create button should dry-run (print the request) instead of creating. */
+function botDryRun(): boolean {
+  return process.env.BOT_DRY_RUN === "true";
 }
 
 /** The allowlist of user IDs permitted to trigger a triage (comma-separated env). */
@@ -134,6 +146,131 @@ async function handleTriage(
   }
 }
 
+/**
+ * Resolve the session a button/modal custom ID refers to (`action:sessionId`),
+ * enforcing that it still exists and that the clicker is the maintainer it was
+ * DMed to. Returns null after replying ephemerally when either check fails, so
+ * callers can simply bail.
+ */
+async function resolveSession(
+  interaction: ButtonInteraction | ModalSubmitInteraction,
+  sessionId: string,
+): Promise<Session | null> {
+  const session = sessions.get(sessionId);
+  if (!session) {
+    await interaction.reply({
+      content: "That draft has expired (the bot restarted). Re-run Triage to start over.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return null;
+  }
+  if (interaction.user.id !== session.userId) {
+    await interaction.reply({
+      content: "This draft isn't yours to act on.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return null;
+  }
+  return session;
+}
+
+/** Create the issue from the approved draft and report the outcome in the DM. */
+async function handleCreate(
+  interaction: ButtonInteraction,
+  sessionId: string,
+): Promise<void> {
+  const session = await resolveSession(interaction, sessionId);
+  if (!session) return;
+
+  // finalizeIssue is slow (GitHub + post-back), so ack first, then edit the DM.
+  await interaction.deferUpdate();
+  const dryRun = botDryRun();
+
+  try {
+    const { issueUrl, postedBack, postError } = await finalizeIssue(
+      session.draft,
+      session.threadUrl,
+      { dryRun },
+    );
+
+    let content: string;
+    if (dryRun) {
+      content = "🧪 Dry run — logged the GitHub request, nothing was created.";
+    } else if (postedBack) {
+      content = `✅ Created issue: ${issueUrl}\nPosted the link back to the thread.`;
+    } else if (postError) {
+      content = `✅ Created issue: ${issueUrl}\n⚠️ Couldn't post the link back to the thread: ${postError.message}`;
+    } else {
+      content = `✅ Created issue: ${issueUrl}`;
+    }
+
+    // Drop the buttons — this session is done — but keep the draft visible.
+    await session.message.edit({ content, components: [] });
+    sessions.delete(sessionId);
+  } catch (err) {
+    // Creation failed; leave the buttons in place so the maintainer can retry.
+    const detail = err instanceof Error ? err.message : String(err);
+    await session.message.edit({
+      content: `❌ Couldn't create the issue: ${detail}\nYou can try again.`,
+    });
+  }
+}
+
+/** Discard the draft: clear the session and mark the DM as dropped. */
+async function handleDiscard(
+  interaction: ButtonInteraction,
+  sessionId: string,
+): Promise<void> {
+  const session = await resolveSession(interaction, sessionId);
+  if (!session) return;
+
+  sessions.delete(sessionId);
+  await interaction.update({
+    content: "🗑 Discarded — no issue created.",
+    components: [],
+  });
+}
+
+/** Re-draft the issue against the modal's feedback and re-render the DM. */
+async function handleReviseSubmit(
+  interaction: ModalSubmitInteraction,
+  sessionId: string,
+): Promise<void> {
+  const session = await resolveSession(interaction, sessionId);
+  if (!session) return;
+
+  // The revision is another Claude call, so ack first, then edit the DM in place.
+  await interaction.deferUpdate();
+  const feedback = interaction.fields.getTextInputValue(REVISE_FEEDBACK_INPUT);
+
+  try {
+    // Reuses the drafter's downloaded transcript + images — no re-fetch.
+    session.draft = await session.drafter.revise(session.draft, feedback);
+    await session.message.edit({
+      content: null,
+      embeds: [buildDraftEmbed(session.draft)],
+      components: [buildButtons(sessionId)],
+    });
+  } catch (err) {
+    // Revision failed; keep the current draft and buttons so the maintainer can
+    // retry or create as-is. Surface the reason ephemerally.
+    const detail = err instanceof Error ? err.message : String(err);
+    await interaction.followUp({
+      content: `Couldn't revise the draft: ${detail}. The previous draft is unchanged.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+}
+
+/** Parse a `action:sessionId` custom ID into its two parts. */
+function parseCustomId(customId: string): { action: string; sessionId: string } {
+  const idx = customId.indexOf(":");
+  return {
+    action: customId.slice(0, idx),
+    sessionId: customId.slice(idx + 1),
+  };
+}
+
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 client.once(Events.ClientReady, async (ready) => {
@@ -142,10 +279,33 @@ client.once(Events.ClientReady, async (ready) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
-  // Stage 3 adds the button/modal branches; Stage 2 handles only the trigger.
-  if (!interaction.isMessageContextMenuCommand()) return;
-  if (interaction.commandName !== COMMAND_NAME) return;
-  await handleTriage(interaction);
+  try {
+    if (interaction.isMessageContextMenuCommand()) {
+      if (interaction.commandName !== COMMAND_NAME) return;
+      await handleTriage(interaction);
+      return;
+    }
+
+    if (interaction.isButton()) {
+      const { action, sessionId } = parseCustomId(interaction.customId);
+      if (action === "create") await handleCreate(interaction, sessionId);
+      else if (action === "discard") await handleDiscard(interaction, sessionId);
+      else if (action === "revise") {
+        const session = await resolveSession(interaction, sessionId);
+        if (session) await interaction.showModal(buildReviseModal(sessionId));
+      }
+      return;
+    }
+
+    if (interaction.isModalSubmit()) {
+      const { action, sessionId } = parseCustomId(interaction.customId);
+      if (action === "revisemodal") await handleReviseSubmit(interaction, sessionId);
+      return;
+    }
+  } catch (err) {
+    // A handler threw before it could respond; log it rather than crash the bot.
+    console.error("Interaction handler failed:", err);
+  }
 });
 
 client.login(requireEnv("DISCORD_BOT_TOKEN"));

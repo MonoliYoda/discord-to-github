@@ -3,6 +3,9 @@ import {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
 } from "discord.js";
 
 import type { IssueDraft } from "../types.js";
@@ -85,4 +88,28 @@ export function buildButtons(id: string): ActionRowBuilder<ButtonBuilder> {
       .setEmoji("🗑")
       .setStyle(ButtonStyle.Danger),
   );
+}
+
+/** The custom-id field key of the revise modal's feedback input. */
+export const REVISE_FEEDBACK_INPUT = "feedback";
+
+/**
+ * The revise modal: one paragraph text input for free-form feedback. Its custom
+ * ID carries the session id (`revisemodal:<id>`) so the modal-submit router can
+ * look the session up, mirroring the button custom IDs above.
+ */
+export function buildReviseModal(id: string): ModalBuilder {
+  return new ModalBuilder()
+    .setCustomId(`revisemodal:${id}`)
+    .setTitle("Revise the draft")
+    .addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId(REVISE_FEEDBACK_INPUT)
+          .setLabel("What should change?")
+          .setPlaceholder("e.g. Drop the rejected section; tighten the title.")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true),
+      ),
+    );
 }
