@@ -1,10 +1,8 @@
 #!/usr/bin/env -S npx tsx
 import "dotenv/config";
 
-import { fetchThread, postThreadReply } from "./discord.js";
-import { createIssueDrafter } from "./extract.js";
 import { renderDraft, renderTranscript } from "./format.js";
-import { createIssue } from "./github.js";
+import { finalizeIssue, startDraft } from "./pipeline.js";
 import { reviewDraft } from "./preview.js";
 
 const USAGE = `discord-to-github — turn a Discord forum thread into a GitHub issue
@@ -66,12 +64,10 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const thread = await fetchThread(args.threadUrl);
+  const { thread, drafter, draft: firstDraft } = await startDraft(args.threadUrl);
   console.log(renderTranscript(thread));
   console.log("");
-
-  const drafter = await createIssueDrafter(thread, args.threadUrl);
-  let draft = await drafter.draft();
+  let draft = firstDraft;
 
   // --dry-run short-circuits to a print-only request; --yes creates the first
   // draft without prompting. Otherwise the gate loops: create, abort, or send
@@ -79,7 +75,7 @@ async function main(): Promise<number> {
   if (args.dryRun) {
     console.log(renderDraft(draft));
     console.log("");
-    await createIssue(draft, { dryRun: true });
+    await finalizeIssue(draft, args.threadUrl, { dryRun: true });
     return 0;
   }
 
@@ -102,22 +98,19 @@ async function main(): Promise<number> {
     draft = await drafter.revise(draft, decision.feedback);
   }
 
-  const issueUrl = await createIssue(draft, { dryRun: false });
+  const { issueUrl, postedBack, postError } = await finalizeIssue(
+    draft,
+    args.threadUrl,
+    { dryRun: false },
+  );
   console.log(`Created issue: ${issueUrl}`);
 
-  // Let the thread know the dev team has taken this up. The issue already
-  // exists, so a failure to post is a warning, not a run failure.
-  try {
-    await postThreadReply(
-      args.threadUrl,
-      `📌 The dev team has picked this up — tracking it here: ${issueUrl}`,
-    );
+  // A failed post-back is a warning, not a run failure — the issue already exists.
+  if (postedBack) {
     console.log("Posted the issue link back to the thread.");
-  } catch (err) {
+  } else if (postError) {
     console.warn(
-      `Warning: created the issue but couldn't post the link back to the thread: ${
-        err instanceof Error ? err.message : err
-      }`,
+      `Warning: created the issue but couldn't post the link back to the thread: ${postError.message}`,
     );
   }
 
