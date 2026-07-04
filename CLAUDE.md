@@ -1,21 +1,38 @@
 # CLAUDE.md
 
-CLI that turns a Discord forum thread into a structured GitHub issue via a Claude
-decision-extraction call. Manually triggered, one thread at a time. Domain context
-is configurable, not hardcoded.
+Turns a Discord forum thread into a structured GitHub issue via a Claude
+decision-extraction call. One thread at a time. Domain context is configurable,
+not hardcoded. Two entrypoints share one extraction core: a manual CLI and an
+always-on Discord bot (long-press a message → Triage → confirm in a DM from the
+phone).
 
 ## Run / check
 
-- `npm start <discord-thread-url> [--dry-run] [--yes]` — full pipeline.
+- `npm run bot` — always-on Discord bot; the primary entrypoint. Deploy with
+  `docker compose up --build` (self-hosted, `restart: unless-stopped`). Registers
+  the restricted "Triage to GitHub" message command and DMs the maintainer the
+  draft with Create / Revise / Discard. `BOT_DRY_RUN=true` makes Create dry-run.
+- `npm start <discord-thread-url> [--dry-run] [--yes]` — the same pipeline from the
+  terminal, confirm gate on stdin.
 - `npm run typecheck` (`tsc --noEmit`) — keep clean after every change.
 - Secrets live in `.env` (never committed); see `.env.example`.
 
 ## Pipeline (all in `src/`)
 
-`index.ts` orchestrates: `discord.ts` (fetch thread) → `extract.ts` (Claude →
-`IssueDraft`) → `format.ts` (render transcript + draft) → `preview.ts` (confirm
-gate) → `github.ts` (create issue) → back to `discord.ts` to post the issue link
-into the thread.
+- **`pipeline.ts`** — the shared core both entrypoints call. `startDraft(url)`
+  wraps `fetchThread` → `createIssueDrafter` → `draft()`; `finalizeIssue` wraps
+  `createIssue` + the `📌` post-back. No confirm gate lives here — each surface
+  supplies its own.
+- **`index.ts`** — the CLI surface: parses args, runs the stdin confirm/revise loop
+  (`preview.ts`), calls the shared pipeline.
+- **`bot.ts`** — the Discord surface (discord.js): registers the guild-scoped
+  restricted message command, auth-gates on `AUTHORIZED_USER_IDS`, drafts on
+  trigger, and drives the confirm/revise loop via DM buttons + a revise modal.
+  `src/bot/render.ts` builds the draft embed and buttons.
+
+Core stages: `discord.ts` (fetch thread) → `extract.ts` (Claude → `IssueDraft`) →
+`format.ts` (render transcript + draft) → `github.ts` (create issue) → back to
+`discord.ts` to post the issue link into the thread.
 
 - **`discord.ts`** — Discord REST v10. `fetchThread` paginates newest-first and
   reverses to chronological; `postThreadReply` posts the issue link back.

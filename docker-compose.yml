@@ -1,0 +1,9 @@
+services:
+  bot:
+    build: .
+    env_file: .env
+    # Domain context is gitignored and never baked into the image — mount it at
+    # runtime, read-only, so the extraction prompt can load it.
+    volumes:
+      - ./context:/app/context:ro
+    restart: unless-stopped

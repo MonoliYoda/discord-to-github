@@ -1,0 +1,12 @@
+node_modules
+.git
+.env
+.env.*
+!.env.example
+
+# Logs
+logs
+*.log
+
+# Context is mounted at runtime, never baked into the image
+context
