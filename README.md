@@ -30,6 +30,11 @@ There are two ways to run it, both over the same extraction core:
    back into the Discord thread. (A failed post-back is a warning, not a failure — the issue already
    exists.)
 
+And it closes the loop the other way. The always-on bot can run a **resolution watcher** that polls
+GitHub for issues it created and, when one is closed, posts a reply back into the source thread —
+@-mentioning the original poster — so the people who asked hear that it shipped. See
+[Resolution watcher](#resolution-watcher).
+
 ## Setup
 
 Requires Node 20+ (or Docker, for the bot).
@@ -54,6 +59,11 @@ cp context/DOMAIN_CONTEXT.md context/CONTEXT.md   # then fill in your domain
 | `GITHUB_TOKEN` | both | Fine-grained PAT with **Issues: read + write** on the target repo. |
 | `GITHUB_REPO` | both | Target repo in `owner/repo` form. |
 | `CONTEXT_FILE` | both | Optional path to your domain context doc. Defaults to `context/CONTEXT.md`. |
+| `TRIAGE_LABEL` | both | Reserved label stamped on every issue the tool creates; the resolution watcher polls on it so it only touches issues it filed. Optional; defaults to `discord-triage`. |
+| `RESOLVED_WATCH_ENABLED` | bot | Set to `true` to start the resolution watcher (GitHub → Discord post-back on close). Unset/empty leaves it off. |
+| `RESOLVED_POLL_INTERVAL_MS` | bot | How often the watcher polls GitHub for newly-closed triaged issues, in ms. Optional; defaults to `300000` (5 min). |
+| `ANNOUNCE_NOT_PLANNED` | bot | Set to `true` to also post back when an issue is closed as **not planned** (won't-fix / duplicate / stale), in distinct wording. Default off: only issues closed as **completed** are announced. |
+| `STATE_FILE` | bot | Path to the watcher's persisted state (watermark + dedup). Lives on the mounted `./state` volume so it survives restarts. Optional; defaults to `state/resolved.json`. |
 
 ### Domain context
 
@@ -108,8 +118,35 @@ docker compose up --build -d
 ```
 
 `docker-compose.yml` reads secrets from `.env`, mounts `./context` read-only (your `CONTEXT.md` is
-gitignored and never baked into the image), and restarts the container unless you stop it. On start
-it connects to the gateway, registers the command, and logs `Triage bot logged in as …`.
+gitignored and never baked into the image), mounts `./state` read-write (the resolution watcher's
+dedup/watermark, so it survives `restart: unless-stopped` and never re-announces on reboot), and
+restarts the container unless you stop it. On start it connects to the gateway, registers the
+command, and logs `Triage bot logged in as …`.
+
+## Resolution watcher
+
+The bot can close the loop the other way: when a GitHub issue this tool created is **closed**, it
+posts back into the original Discord thread so the people who asked for it hear the outcome — no one
+has to manually chase the link.
+
+**How it works.** Every issue the tool creates is stamped with a reserved label (`TRIAGE_LABEL`,
+default `discord-triage`) and carries a `<!-- discord-thread: … -->` marker in its body. With
+`RESOLVED_WATCH_ENABLED=true`, the bot polls GitHub every `RESOLVED_POLL_INTERVAL_MS` (default 5 min)
+for its closed issues, and for each newly-closed one posts a reply into the source thread,
+@-mentioning the original poster. It only ever touches issues carrying the label — issues you filed
+by hand, or before this feature existed, are left alone.
+
+- **Completed** closures always post back, with wording that fits the issue's type (feature / bug /
+  task).
+- **Not planned** closures (won't-fix / duplicate / stale) are silent by default; set
+  `ANNOUNCE_NOT_PLANNED=true` to announce them too, in distinct wording.
+
+**Setup.** No new GitHub scope — the existing `GITHUB_TOKEN` (**Issues: read + write**) covers it.
+The watcher keeps a small state file (`STATE_FILE`, default `state/resolved.json`) holding its poll
+watermark and the set of already-announced issues, so it polls incrementally and never posts twice —
+even across reopen/reclose or a restart. In the Docker deploy this lives on the mounted `./state`
+volume; running the bot directly, it's written under the working directory. A GitHub or Discord
+hiccup is logged and retried next interval — it never crashes the bot or loses state.
 
 ## CLI
 
@@ -137,4 +174,5 @@ build history.
 
 Complete. Both entrypoints are built on one extraction core: the CLI (fetch → extract →
 preview/confirm → create) and the always-on Discord bot (trigger → DM draft → confirm/revise →
-create), deployable via Docker.
+create), deployable via Docker. The bot also runs the resolution watcher, closing the loop back to
+Discord when a triaged issue is resolved.
