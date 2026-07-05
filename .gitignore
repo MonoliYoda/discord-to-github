@@ -73,6 +73,9 @@ web_modules/
 # Local domain context — created from context/DOMAIN_CONTEXT.md, never committed
 context/CONTEXT.md
 
+# Resolution watcher state (watermark + dedup) — runtime data, never committed
+state/
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache

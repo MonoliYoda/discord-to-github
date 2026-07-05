@@ -6,4 +6,7 @@ services:
     # runtime, read-only, so the extraction prompt can load it.
     volumes:
       - ./context:/app/context:ro
+      # Resolution watcher state (watermark + dedup). Read-write so it survives
+      # restart: unless-stopped and the container never re-announces on reboot.
+      - ./state:/app/state
     restart: unless-stopped
