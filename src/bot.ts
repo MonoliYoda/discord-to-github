@@ -135,10 +135,21 @@ async function handleTriage(
       });
       await interaction.editReply("Sent you a DM with the draft to review.");
     } catch {
-      // DMs are likely closed; fall back to showing the draft ephemerally in-thread.
-      await interaction.editReply({
-        content: "I couldn't DM you (check your privacy settings). Here's the draft:",
+      // DMs are likely closed. Fall back to the draft as an ephemeral reply: it's
+      // visible only to the triager (never to regular members), so it's just as
+      // private as the DM and needs no privacy-settings changes to work. Register
+      // the session against the returned message so the buttons actually resolve —
+      // the button handlers edit session.message in place.
+      const message = await interaction.editReply({
+        content: "I couldn't DM you, so here's the draft (only you can see this):",
         ...payload,
+      });
+      sessions.set(id, {
+        drafter,
+        draft,
+        threadUrl,
+        userId: interaction.user.id,
+        message,
       });
     }
   } catch (err) {
