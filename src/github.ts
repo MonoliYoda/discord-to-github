@@ -61,17 +61,33 @@ export function renderIssueBody(draft: IssueDraft): string {
       ? ` · Community demand: ${provenance.topReactions}`
       : "");
 
-  return `${sections.join("\n")}\n${footer}`;
+  // Machine-readable linkage: the resolution watcher parses the thread URL from
+  // this marker rather than regexing the human `Source:` line above.
+  const marker = `<!-- discord-thread: ${provenance.discordUrl} -->`;
+
+  return `${sections.join("\n")}\n${footer}\n\n${marker}`;
+}
+
+/** The reserved label marking every issue this tool creates (see .env.example). */
+function getTriageLabel(): string {
+  return process.env.TRIAGE_LABEL || "discord-triage";
 }
 
 /** Build the full create-issue request (URL + JSON body) from a draft. */
 export function buildIssueRequest(draft: IssueDraft, repo: string): IssueRequest {
+  // Reserved triage label, deduped in — the watcher's poll query filters on it so
+  // it only ever touches issues this tool created.
+  const triageLabel = getTriageLabel();
+  const labels = draft.labels.includes(triageLabel)
+    ? draft.labels
+    : [...draft.labels, triageLabel];
+
   return {
     url: `https://api.github.com/repos/${repo}/issues`,
     body: {
       title: draft.title,
       body: renderIssueBody(draft),
-      labels: draft.labels,
+      labels,
     },
   };
 }
