@@ -20,6 +20,7 @@ import {
 import type { IssueDrafter } from "./extract.js";
 import { finalizeIssue, startDraft } from "./pipeline.js";
 import type { IssueDraft } from "./types.js";
+import { startResolutionWatcher } from "./watcher.js";
 import {
   buildButtons,
   buildDraftEmbed,
@@ -276,6 +277,12 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 client.once(Events.ClientReady, async (ready) => {
   await registerCommand(ready);
   console.log(`Triage bot logged in as ${ready.user.tag}.`);
+
+  // The inbound half: poll GitHub for resolved issues and post back into their
+  // threads. REST-only and independent of the gateway; started here for a live token.
+  if (process.env.RESOLVED_WATCH_ENABLED === "true") {
+    startResolutionWatcher();
+  }
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {

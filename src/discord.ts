@@ -23,9 +23,10 @@ interface DiscordAttachment {
   size: number;
   content_type?: string;
 }
-/** The thread channel itself; `name` is the forum post's title. */
+/** The thread channel itself; `name` is the forum post's title, `owner_id` its creator. */
 interface DiscordChannel {
   name?: string;
+  owner_id?: string;
 }
 interface DiscordReaction {
   count: number;
@@ -184,6 +185,16 @@ export async function postThreadReply(
   if (!res.ok) {
     throw new Error(await describeError(res, threadId));
   }
+}
+
+/**
+ * Look up the forum thread's creator — the original poster — so the resolution
+ * watcher can `@`-mention them on close. Returns `null` if the channel has no
+ * `owner_id` (not a thread); throws on an API/permission error like the other calls.
+ */
+export async function fetchThreadOwnerId(threadUrl: string): Promise<string | null> {
+  const channel = await fetchChannel(parseThreadId(threadUrl), getToken());
+  return channel.owner_id ?? null;
 }
 
 /**
