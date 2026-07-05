@@ -67,6 +67,9 @@ the *conclusion the thread converged on*, not a chronological recap.
 Read the whole transcript (and any attached images) and produce:
 
 - **title** — an imperative, concise issue title describing the final agreed change.
+- **type** — the GitHub issue type, exactly one of: **Feature** (a request, idea, or
+  new functionality) or **Bug** (an unexpected problem or behavior). Judge by the
+  thread's conclusion, not the OP's framing.
 - **problem** — the motivation, with the concrete use-case context preserved. Frame
   it around the underlying need, not the OP's first proposed solution.
 - **agreedBehavior** — the "Decided" bucket: the acceptance criteria the thread

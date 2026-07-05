@@ -57,9 +57,11 @@ export function buildDraftEmbed(draft: IssueDraft): EmbedBuilder {
         name: "🚫 Considered & rejected",
         value: bucketField(draft.rejectedAlternatives),
       },
+      { name: "Type", value: draft.type, inline: true },
       {
         name: "Labels",
         value: draft.labels.length ? draft.labels.join(", ") : EMPTY,
+        inline: true,
       },
     )
     .setFooter({ text: footer });

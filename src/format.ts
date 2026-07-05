@@ -62,7 +62,7 @@ export function renderDraft(draft: IssueDraft): string {
   const lines: string[] = [
     "=== Issue draft ===",
     "",
-    draft.title,
+    `[${draft.type}] ${draft.title}`,
     "",
     "Problem:",
     draft.problem,

@@ -42,6 +42,11 @@ export interface ThreadReaction {
 export const IssueDraftSchema = z.object({
   /** Imperative, concise — e.g. "Add name column to the details panel". */
   title: z.string(),
+  /**
+   * The GitHub native issue type. "Feature" = a request, idea, or new
+   * functionality; "Bug" = an unexpected problem or behavior.
+   */
+  type: z.enum(["Feature", "Bug"]),
   /** Motivation, with the domain use-case context preserved. */
   problem: z.string(),
   /** The "Decided" bucket → acceptance criteria. */

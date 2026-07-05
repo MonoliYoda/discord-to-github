@@ -12,6 +12,8 @@ export interface IssueRequest {
     title: string;
     body: string;
     labels: string[];
+    /** GitHub native issue type name, e.g. "Feature" or "Bug". */
+    type: string;
   };
 }
 
@@ -197,6 +199,7 @@ export function buildIssueRequest(draft: IssueDraft, repo: string): IssueRequest
       title: draft.title,
       body: renderIssueBody(draft),
       labels,
+      type: draft.type,
     },
   };
 }
