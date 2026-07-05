@@ -73,6 +73,110 @@ function getTriageLabel(): string {
   return process.env.TRIAGE_LABEL || "discord-triage";
 }
 
+/** The GitHub REST headers shared by every authenticated call. */
+function githubHeaders(token: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+}
+
+/**
+ * A closed tool-created issue, normalized for the resolution watcher: which issue,
+ * where it lives on GitHub, when/why it closed, and the Discord thread to reply into.
+ */
+export interface Resolution {
+  number: number;
+  htmlUrl: string;
+  closedAt: string | null;
+  stateReason: string | null;
+  threadUrl: string;
+}
+
+/** The subset of the GitHub issue payload we read; `pull_request` marks PRs. */
+interface GitHubIssue {
+  number: number;
+  html_url: string;
+  closed_at: string | null;
+  state_reason: string | null;
+  body: string | null;
+  pull_request?: unknown;
+}
+
+/**
+ * Recover the source Discord thread URL from an issue body. Prefers the
+ * machine-readable `<!-- discord-thread: … -->` marker; falls back to the human
+ * `Source:` footer for issues written before the marker existed. `null` if neither.
+ */
+export function parseThreadUrl(body: string | null): string | null {
+  if (!body) return null;
+  const marker = body.match(/<!--\s*discord-thread:\s*(\S+?)\s*-->/);
+  if (marker) return marker[1];
+  const source = body.match(/^Source:\s*(\S+)/m);
+  if (source) return source[1];
+  return null;
+}
+
+/**
+ * List this tool's closed issues updated since `since` (ISO 8601), normalized into
+ * `Resolution` records for the watcher. Pull requests are dropped (the issues
+ * endpoint returns both); issues with no recoverable thread URL are skipped + warned.
+ * A pure query — no posting, no state.
+ */
+export async function listClosedTriagedIssues({
+  since,
+}: {
+  since?: string | null;
+}): Promise<Resolution[]> {
+  const { token, repo } = getConfig();
+  const label = getTriageLabel();
+  const perPage = 100;
+  const resolutions: Resolution[] = [];
+
+  for (let page = 1; ; page++) {
+    const url = new URL(`https://api.github.com/repos/${repo}/issues`);
+    url.searchParams.set("state", "closed");
+    url.searchParams.set("labels", label);
+    url.searchParams.set("sort", "updated");
+    url.searchParams.set("direction", "asc");
+    url.searchParams.set("per_page", String(perPage));
+    url.searchParams.set("page", String(page));
+    if (since) url.searchParams.set("since", since);
+
+    const res = await fetch(url, { headers: githubHeaders(token) });
+    if (!res.ok) {
+      const detail = await res.text();
+      throw new Error(
+        `GitHub issue query failed (${res.status} ${res.statusText}): ${detail}`,
+      );
+    }
+
+    const issues = (await res.json()) as GitHubIssue[];
+    for (const issue of issues) {
+      if (issue.pull_request) continue; // the issues endpoint returns PRs too
+      const threadUrl = parseThreadUrl(issue.body);
+      if (!threadUrl) {
+        console.warn(
+          `Skipping issue #${issue.number}: no Discord thread URL in body.`,
+        );
+        continue;
+      }
+      resolutions.push({
+        number: issue.number,
+        htmlUrl: issue.html_url,
+        closedAt: issue.closed_at,
+        stateReason: issue.state_reason,
+        threadUrl,
+      });
+    }
+
+    if (issues.length < perPage) break; // short page → last page
+  }
+
+  return resolutions;
+}
+
 /** Build the full create-issue request (URL + JSON body) from a draft. */
 export function buildIssueRequest(draft: IssueDraft, repo: string): IssueRequest {
   // Reserved triage label, deduped in — the watcher's poll query filters on it so
