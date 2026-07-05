@@ -91,6 +91,8 @@ export interface Resolution {
   htmlUrl: string;
   closedAt: string | null;
   stateReason: string | null;
+  /** The native GitHub issue type name (e.g. "Feature", "Bug", "Task"), or null if unset. */
+  type: string | null;
   threadUrl: string;
 }
 
@@ -100,6 +102,8 @@ interface GitHubIssue {
   html_url: string;
   closed_at: string | null;
   state_reason: string | null;
+  /** The native issue type, present only when the repo assigns one; else absent/null. */
+  type?: { name: string } | null;
   body: string | null;
   pull_request?: unknown;
 }
@@ -167,6 +171,7 @@ export async function listClosedTriagedIssues({
         htmlUrl: issue.html_url,
         closedAt: issue.closed_at,
         stateReason: issue.state_reason,
+        type: issue.type?.name ?? null,
         threadUrl,
       });
     }

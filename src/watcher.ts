@@ -26,16 +26,61 @@ function announceNotPlanned(): boolean {
 }
 
 /**
+ * Completed-issue replies, keyed by native GitHub issue type — the verb has to fit
+ * ("shipped" is wrong for a bug). Lower-cased type name → pool; `default` covers
+ * issues with no type set. The link is intentionally omitted: the creation post-back
+ * already dropped it into this same thread.
+ */
+const COMPLETED: Record<string, string[]> = {
+  feature: [
+    "🚀 Shipped it! Your ask made it in. Thanks for the nudge.",
+    "✅ Good news — this one shipped! Thanks for raising it.",
+    "🎉 This landed — it's live and closed out. Appreciate you flagging it.",
+    "🚀 Done and shipped. Your request made the cut. Thanks for raising it.",
+  ],
+  bug: [
+    "🐛 Squashed! This one's fixed and closed out. Thanks for reporting it.",
+    "✅ Fixed! Thanks for catching this one.",
+    "🔧 Good news — this is patched up. Appreciate you flagging it.",
+    "🐛 Nailed it — this bug's been fixed. Thanks for reporting it.",
+  ],
+  task: [
+    "✅ Done! This one's taken care of. Thanks for raising it.",
+    "✅ Handled — done and closed out. Appreciate you flagging it.",
+    "👍 Sorted! This one's wrapped up. Thanks for raising it.",
+    "✅ Good news — this is done. Thanks for the nudge.",
+  ],
+  default: [
+    "✅ Done! This one's resolved and closed out. Thanks for raising it.",
+    "✅ Good news — this is resolved. Appreciate you flagging it.",
+  ],
+};
+
+/** Not-planned replies — type-agnostic; "we're not moving forward" reads fine for all. */
+const NOT_PLANNED = [
+  "📪 Update: we're not moving forward on this one. Still glad you raised it.",
+  "🌱 Heads up — this didn't make the cut this time. Appreciate you floating it.",
+  "📪 We've decided to pass on this one for now. Thanks for taking the time to raise it.",
+  "🌱 Closed without changes, but it was a fair ask. Thanks all the same.",
+];
+
+/** Deterministic pick from a pool, keyed off issue number so a retry can't flip the wording. */
+function pick(pool: string[], key: number): string {
+  return pool[key % pool.length];
+}
+
+/**
  * The thread reply for a resolution, or `null` when policy says stay silent:
- * `completed` always posts; `not_planned` only behind the flag; any other/`null`
- * reason is skipped.
+ * `completed` always posts (wording chosen to fit the issue type); `not_planned`
+ * only behind the flag; any other reason is skipped.
  */
 function messageFor(r: Resolution): string | null {
   if (r.stateReason === "completed") {
-    return `✅ Good news — this shipped! Tracked in ${r.htmlUrl}. Thanks for raising it.`;
+    const pool = COMPLETED[(r.type ?? "").toLowerCase()] ?? COMPLETED.default;
+    return pick(pool, r.number);
   }
   if (r.stateReason === "not_planned" && announceNotPlanned()) {
-    return `🚫 Update: this was closed without changes — see ${r.htmlUrl}.`;
+    return pick(NOT_PLANNED, r.number);
   }
   return null;
 }
